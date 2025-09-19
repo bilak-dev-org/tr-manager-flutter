@@ -48,7 +48,9 @@ abstract class TranslationsService {
   }
 
   static void _notifyListeners() {
-    _listeners.forEach((func) => func(instance.selectedLanguage, instance.currentTranslations));
+    for (var func in _listeners) {
+      func(instance.selectedLanguage, instance.currentTranslations);
+    }
   }
 
   static TranslationsService get instance => _instance!;
