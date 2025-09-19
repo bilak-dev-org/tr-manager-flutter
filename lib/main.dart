@@ -8,6 +8,7 @@ import 'package:http_cache_client/http_cache_client.dart';
 import 'package:http_cache_core/http_cache_core.dart';
 import 'package:http_cache_file_store/http_cache_file_store.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 part 'utils.dart';
@@ -44,6 +45,7 @@ abstract class TranslationsService {
   /// Return [VoidCallback] to remove listener
   static VoidCallback addListener(LanguageUpdateListener listener) {
     _listeners.add(listener);
+
     return () => _listeners.remove(listener);
   }
 
@@ -54,18 +56,7 @@ abstract class TranslationsService {
   }
 
   static TranslationsService get instance => _instance!;
-  static final CacheClient _httpClient = CacheClient(
-    http.Client(),
-    options: CacheOptions(
-      store: FileCacheStore('translations_service'),
-      policy: CachePolicy.refresh,
-      // Return cached value on network error or offline
-      hitCacheOnNetworkFailure: true,
-      // Return cached value on 403 or 500 errors
-      hitCacheOnErrorCodes: [403, 500],
-      maxStale: null,
-    ),
-  );
+  static late CacheClient _httpClient;
 
   /// Selected version from remote, empty on initialization error (typically network error)
   final String selectedVersion;
@@ -120,6 +111,19 @@ abstract class TranslationsService {
     Map<Language, Map<String, String>> fallbackTranslations = const {},
   }) async {
     _print('Initializing...');
+    final path = await getApplicationCacheDirectory();
+    _httpClient = CacheClient(
+      http.Client(),
+      options: CacheOptions(
+        store: FileCacheStore(path.absolute.path),
+        policy: CachePolicy.refresh,
+        // Return cached value on network error or offline
+        hitCacheOnNetworkFailure: true,
+        // Return cached value on 403 or 500 errors
+        hitCacheOnErrorCodes: [403, 500],
+        maxStale: null,
+      ),
+    );
     if (baseUrl == null) {
       throw _TranslationsIntegrationException('Set baseUrl with [TranslationsService.baseUrl] first!');
     }

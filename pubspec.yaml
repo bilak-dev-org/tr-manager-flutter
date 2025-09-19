@@ -16,6 +16,7 @@ dependencies:
   http_cache_core: ^1.1.1
   http_cache_file_store: ^2.0.1
   package_info_plus: ^9.0.0
+  path_provider: ^2.1.5
   shared_preferences: ^2.5.3
 
 dev_dependencies:
