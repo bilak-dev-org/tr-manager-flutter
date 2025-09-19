@@ -85,7 +85,7 @@ abstract class TranslationsService {
   /// based on the device's locale preferences.
   /// Will NOT save it anywhere, just return the best match
   Language selectBestLanguage({Language? fallback}) {
-    fallback ??= _translations.keys.first;
+    fallback ??= _languages.first;
 
     // Get device locales in order of preference
     final deviceLocales = PlatformDispatcher.instance.locales;
@@ -95,7 +95,7 @@ abstract class TranslationsService {
       final languageCode = deviceLocale.languageCode.toLowerCase();
 
       // Check for exact match
-      final lang = _translations.keys.firstWhereOrNull((it) => it.code.toLowerCase() == languageCode);
+      final lang = _languages.firstWhereOrNull((it) => it.code.toLowerCase() == languageCode);
       if (lang != null) {
         return lang;
       }
@@ -236,7 +236,7 @@ class FallbackTranslationsService extends TranslationsService {
     required super.languages,
   }) : super._internal() {
     _translations.addAll(fallbackTranslations);
-    _selectedLanguage = selectBestLanguage(fallback: _translations.keys.first);
+    _selectedLanguage = selectBestLanguage(fallback: _languages.first);
   }
 
   @override
