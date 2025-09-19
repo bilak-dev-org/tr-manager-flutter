@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:collection/collection.dart';
@@ -31,6 +32,8 @@ abstract class TranslationsService {
   static const _languageStorageKey = 'translations_service_selected_language';
 
   static TranslationsService? _instance;
+
+  static TranslationsService get instance => _instance!;
   static final CacheClient _httpClient = CacheClient(
     http.Client(),
     options: CacheOptions(
@@ -50,12 +53,17 @@ abstract class TranslationsService {
   /// Selected version from remote, empty on initialization error (typically network error)
   final String selectedVersion;
 
+  // Stream controller for broadcasting updates
+  final StreamController<Language> _controller = StreamController<Language>.broadcast();
+
+  // Public stream to listen for language updated
+  // Called when language was successfully changed and translations loaded
+  Stream<Language> get languageChange => _controller.stream;
+
   /// Translations for available languages
   final Map<Language, Map<String, String>> _translations = {};
 
   TranslationsService._internal({required this.baseUrl, required this.selectedVersion});
-
-  static TranslationsService get instance => _instance!;
 
   List<Language> get languages => _translations.keys.toList();
 
@@ -109,6 +117,8 @@ abstract class TranslationsService {
     if (!_isValidUrl(baseUrl)) {
       throw _TranslationsIntegrationException('Invalid URL: $baseUrl');
     }
+
+    await _instance?._controller.close();
     try {
       TranslationsService._instance = await NormalTranslationsService._initialize(baseUrl: baseUrl);
     } catch (e, stack) {
@@ -148,6 +158,8 @@ class NormalTranslationsService extends TranslationsService {
     _translations[language] = translations;
     await prefs.setString(TranslationsService._languageStorageKey, language.code);
     _print('$language loaded');
+
+    _controller.add(language);
     return translations;
   }
 
@@ -218,10 +230,12 @@ class FallbackTranslationsService extends TranslationsService {
 
   @override
   Future<Map<String, String>> selectLanguage(Language language) {
-    _selectedLanguage = language;
     if (!_translations.containsKey(language)) {
       throw _TranslationsIntegrationException('Translations for $language not found');
     }
+    _selectedLanguage = language;
+
+    _controller.add(language);
     return Future.value(_translations[language]!);
   }
 }
