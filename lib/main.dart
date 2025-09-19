@@ -169,10 +169,13 @@ class NormalTranslationsService extends TranslationsService {
   Future<Map<String, String>> selectLanguage(Language language) async {
     _print('Selected $language, initializing...');
     if (_translations.containsKey(language)) {
+      _print('Initialized $language from cache');
+      TranslationsService._notifyListeners();
       return _translations[language]!;
     }
     final translations = await _fetchTranslations(language);
     _translations[language] = translations;
+    _selectedLanguage = language;
     await prefs.setString(TranslationsService._languageStorageKey, language.code);
     _print('$language loaded');
 
@@ -181,6 +184,9 @@ class NormalTranslationsService extends TranslationsService {
   }
 
   Future<void> _init() async {
+    _selectedLanguage = prefs.getString(TranslationsService._languageStorageKey)?.let((code) {
+      return _languages.firstWhereOrNull((lng) => lng.code == code);
+    });
     if (_selectedLanguage == null) {
       _selectedLanguage = selectBestLanguage();
       _print('No saved language found, chose $_selectedLanguage');
@@ -190,9 +196,9 @@ class NormalTranslationsService extends TranslationsService {
 
   /// Fetch translations from remote or cache
   Future<Map<String, String>> _fetchTranslations(Language language) async {
-    final res = await TranslationsService._httpClient.get(
-      Uri.parse('${TranslationsService.baseUrl}$selectedVersion/${language.code}.json'),
-    );
+    final url = '${TranslationsService.baseUrl}$selectedVersion/${language.code}.json';
+    _print('Fetching $language from $url');
+    final res = await TranslationsService._httpClient.get(Uri.parse(url));
     return (jsonDecode(res.body) as Map<dynamic, dynamic>).cast<String, String>();
   }
 
@@ -210,16 +216,17 @@ class NormalTranslationsService extends TranslationsService {
     final languages = await TranslationsService._httpClient
         .get(Uri.parse('$baseUrl$selectedVersion/info.json'))
         .then((it) {
-          return (jsonDecode(it.body) as Map<dynamic, dynamic>).map(
-            (k, v) => MapEntry(k.toString(), v.toString()),
-          );
+          return ((jsonDecode(it.body) as Map<dynamic, dynamic>)["languages"] as Map<dynamic, dynamic>)
+              .entries
+              .map((entry) => Language(entry.value.toString(), entry.key.toString()))
+              .toSet();
         });
     _print('Found languages: $languages');
 
     final instance = NormalTranslationsService._internal(
       selectedVersion: selectedVersion,
       prefs: await SharedPreferences.getInstance(),
-      languages: languages.entries.map((it) => Language(it.value, it.key)).toSet(),
+      languages: languages,
     );
     await instance._init();
     return instance;
