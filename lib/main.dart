@@ -28,10 +28,28 @@ class Language {
   String toString() => 'Language(code: $code, name: $name)';
 }
 
+typedef LanguageUpdateListener = dynamic Function(Language language, Map<String, String> translations);
+
 abstract class TranslationsService {
   static const _languageStorageKey = 'translations_service_selected_language';
 
+  /// Path to project folder, ends with /
+  static String? baseUrl;
+
   static TranslationsService? _instance;
+
+  static Set<LanguageUpdateListener> _listeners = {};
+
+  /// Add listener that will be called when language is changed
+  /// Return [VoidCallback] to remove listener
+  static VoidCallback addListener(LanguageUpdateListener listener) {
+    _listeners.add(listener);
+    return () => _listeners.remove(listener);
+  }
+
+  static void _notifyListeners() {
+    _listeners.forEach((func) => func(instance.selectedLanguage, instance.currentTranslations));
+  }
 
   static TranslationsService get instance => _instance!;
   static final CacheClient _httpClient = CacheClient(
@@ -47,23 +65,13 @@ abstract class TranslationsService {
     ),
   );
 
-  /// Path to project folder, ends with /
-  final String baseUrl;
-
   /// Selected version from remote, empty on initialization error (typically network error)
   final String selectedVersion;
-
-  // Stream controller for broadcasting updates
-  final StreamController<Language> _controller = StreamController<Language>.broadcast();
-
-  // Public stream to listen for language updated
-  // Called when language was successfully changed and translations loaded
-  Stream<Language> get languageChange => _controller.stream;
 
   /// Translations for available languages
   final Map<Language, Map<String, String>> _translations = {};
 
-  TranslationsService._internal({required this.baseUrl, required this.selectedVersion});
+  TranslationsService._internal({required this.selectedVersion});
 
   List<Language> get languages => _translations.keys.toList();
 
@@ -106,28 +114,28 @@ abstract class TranslationsService {
   /// [fallbackTranslations] translations to use in case of network errors
   /// Call again if network was not available first time
   static Future<void> init({
-    required String baseUrl,
     // Language code -> translations
     Map<Language, Map<String, String>> fallbackTranslations = const {},
   }) async {
     _print('Initializing...');
-    if (!baseUrl.endsWith('/')) {
+    if (baseUrl == null) {
+      throw _TranslationsIntegrationException('Set baseUrl with [TranslationsService.baseUrl] first!');
+    }
+    if (!baseUrl!.endsWith('/')) {
       baseUrl = "$baseUrl/";
     }
-    if (!_isValidUrl(baseUrl)) {
+    if (!_isValidUrl(baseUrl!)) {
       throw _TranslationsIntegrationException('Invalid URL: $baseUrl');
     }
 
-    await _instance?._controller.close();
     try {
-      TranslationsService._instance = await NormalTranslationsService._initialize(baseUrl: baseUrl);
+      TranslationsService._instance = await NormalTranslationsService._initialize(baseUrl: baseUrl!);
     } catch (e, stack) {
       _print('Initialization error: $e');
       debugPrintStack(stackTrace: stack);
       _print('Will use fallback data');
       _print('Try calling init() again after network is available');
       TranslationsService._instance = FallbackTranslationsService._internal(
-        baseUrl: baseUrl,
         selectedVersion: "",
         fallbackTranslations: fallbackTranslations,
       );
@@ -139,11 +147,8 @@ class NormalTranslationsService extends TranslationsService {
   final SharedPreferences prefs;
   Language? _selectedLanguage;
 
-  NormalTranslationsService._internal({
-    required super.baseUrl,
-    required super.selectedVersion,
-    required this.prefs,
-  }) : super._internal();
+  NormalTranslationsService._internal({required super.selectedVersion, required this.prefs})
+    : super._internal();
 
   @override
   Language get selectedLanguage => _selectedLanguage!;
@@ -159,7 +164,7 @@ class NormalTranslationsService extends TranslationsService {
     await prefs.setString(TranslationsService._languageStorageKey, language.code);
     _print('$language loaded');
 
-    _controller.add(language);
+    TranslationsService._notifyListeners();
     return translations;
   }
 
@@ -174,7 +179,7 @@ class NormalTranslationsService extends TranslationsService {
   /// Fetch translations from remote or cache
   Future<Map<String, String>> _fetchTranslations(Language language) async {
     final res = await TranslationsService._httpClient.get(
-      Uri.parse('$baseUrl$selectedVersion/${language.code}.json'),
+      Uri.parse('${TranslationsService.baseUrl}$selectedVersion/${language.code}.json'),
     );
     return (jsonDecode(res.body) as Map<dynamic, dynamic>).cast<String, String>();
   }
@@ -200,7 +205,6 @@ class NormalTranslationsService extends TranslationsService {
     _print('Found languages: $languages');
 
     final instance = NormalTranslationsService._internal(
-      baseUrl: baseUrl,
       selectedVersion: selectedVersion,
       prefs: await SharedPreferences.getInstance(),
     );
@@ -214,7 +218,6 @@ class FallbackTranslationsService extends TranslationsService {
   Language? _selectedLanguage;
 
   FallbackTranslationsService._internal({
-    required super.baseUrl,
     required super.selectedVersion,
     required Map<Language, Map<String, String>> fallbackTranslations,
   }) : super._internal() {
@@ -235,7 +238,7 @@ class FallbackTranslationsService extends TranslationsService {
     }
     _selectedLanguage = language;
 
-    _controller.add(language);
+    TranslationsService._notifyListeners();
     return Future.value(_translations[language]!);
   }
 }
