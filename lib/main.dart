@@ -38,7 +38,7 @@ abstract class TranslationsService {
 
   static TranslationsService? _instance;
 
-  static Set<LanguageUpdateListener> _listeners = {};
+  static final Set<LanguageUpdateListener> _listeners = {};
 
   /// Add listener that will be called when language is changed
   /// Return [VoidCallback] to remove listener
