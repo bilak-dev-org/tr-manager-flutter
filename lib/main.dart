@@ -63,10 +63,12 @@ abstract class TranslationsService {
 
   /// Translations for available languages
   final Map<Language, Map<String, String>> _translations = {};
+  final Set<Language> _languages;
 
-  TranslationsService._internal({required this.selectedVersion});
+  TranslationsService._internal({required this.selectedVersion, required Set<Language> languages})
+    : _languages = languages;
 
-  List<Language> get languages => _translations.keys.toList();
+  List<Language> get languages => _languages.toList();
 
   Language get selectedLanguage;
 
@@ -144,6 +146,7 @@ abstract class TranslationsService {
       TranslationsService._instance = FallbackTranslationsService._internal(
         selectedVersion: "",
         fallbackTranslations: fallbackTranslations,
+        languages: fallbackTranslations.keys.toSet(),
       );
     }
   }
@@ -153,8 +156,11 @@ class NormalTranslationsService extends TranslationsService {
   final SharedPreferences prefs;
   Language? _selectedLanguage;
 
-  NormalTranslationsService._internal({required super.selectedVersion, required this.prefs})
-    : super._internal();
+  NormalTranslationsService._internal({
+    required super.selectedVersion,
+    required this.prefs,
+    required super.languages,
+  }) : super._internal();
 
   @override
   Language get selectedLanguage => _selectedLanguage!;
@@ -193,9 +199,9 @@ class NormalTranslationsService extends TranslationsService {
   /// Try to get all data from remote and return [TranslationsService] instance
   /// On fails use fallback data
   static Future<NormalTranslationsService> _initialize({required String baseUrl}) async {
-    _print('Fetching versions...');
+    _print('Fetching versions from ${baseUrl}versions.json ...');
     final versions = await TranslationsService._httpClient
-        .get(Uri.parse("$baseUrl/versions.json"))
+        .get(Uri.parse("${baseUrl}versions.json"))
         .then((it) => (jsonDecode(it.body) as List<dynamic>).map((it) => it.toString()).toList());
     final selectedVersion = await _findMostSuitableVersion(versions);
     _print('Selected version: $selectedVersion, all versions: $versions');
@@ -213,6 +219,7 @@ class NormalTranslationsService extends TranslationsService {
     final instance = NormalTranslationsService._internal(
       selectedVersion: selectedVersion,
       prefs: await SharedPreferences.getInstance(),
+      languages: languages.entries.map((it) => Language(it.value, it.key)).toSet(),
     );
     await instance._init();
     return instance;
@@ -226,6 +233,7 @@ class FallbackTranslationsService extends TranslationsService {
   FallbackTranslationsService._internal({
     required super.selectedVersion,
     required Map<Language, Map<String, String>> fallbackTranslations,
+    required super.languages,
   }) : super._internal() {
     _translations.addAll(fallbackTranslations);
     _selectedLanguage = selectBestLanguage(fallback: _translations.keys.first);
