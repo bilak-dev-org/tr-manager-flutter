@@ -54,7 +54,12 @@ abstract class TranslationsService {
 
   static void _notifyListeners() {
     for (var func in _listeners) {
-      func(instance.selectedLanguage, instance.currentTranslations);
+      try {
+        func(instance.selectedLanguage, instance.currentTranslations);
+      } catch (e, stack) {
+        _print('Error in listener callback: $e');
+        debugPrintStack(stackTrace: stack);
+      }
     }
   }
 
@@ -159,19 +164,20 @@ class NormalTranslationsService extends TranslationsService {
   @override
   Future<Map<String, String>> selectLanguage(Language language) async {
     _print('Selected $language, initializing...');
-    if (_translations.containsKey(language)) {
+
+    if (!_translations.containsKey(language)) {
+      final translations = await _fetchTranslations(language);
+      _translations[language] = translations;
+      _print('$language loaded');
+    } else {
       _print('Initialized $language from cache');
-      TranslationsService._notifyListeners();
-      return _translations[language]!;
     }
-    final translations = await _fetchTranslations(language);
-    _translations[language] = translations;
+
     _selectedLanguage = language;
     await prefs.setString(TranslationsService._languageStorageKey, language.code);
-    _print('$language loaded');
-
     TranslationsService._notifyListeners();
-    return translations;
+
+    return _translations[language]!;
   }
 
   Future<void> _init() async {
