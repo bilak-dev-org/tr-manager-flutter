@@ -1,17 +1,17 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:collection/collection.dart';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:http_cache_client/http_cache_client.dart';
-import 'package:http_cache_core/http_cache_core.dart';
-import 'package:http_cache_file_store/http_cache_file_store.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
-part 'utils.dart';
+part 'package:translations_service_integration/src/cache_entry.dart';
+part 'package:translations_service_integration/src/etag_cache_client.dart';
+part 'package:translations_service_integration/src/utils.dart';
 
 class Language {
   final String name;
@@ -37,6 +37,9 @@ abstract class TranslationsService {
   /// Path to project folder, ends with /
   static String? baseUrl;
 
+  /// Enable debug logging for cache operations. Defaults to kDebugMode.
+  static bool enableDebugLogs = kDebugMode;
+
   static TranslationsService? _instance;
 
   static final Set<LanguageUpdateListener> _listeners = {};
@@ -56,7 +59,7 @@ abstract class TranslationsService {
   }
 
   static TranslationsService get instance => _instance!;
-  static late CacheClient _httpClient;
+  static late EtagCacheClient _httpClient;
 
   /// Selected version from remote, empty on initialization error (typically network error)
   final String selectedVersion;
@@ -113,19 +116,7 @@ abstract class TranslationsService {
     Map<Language, Map<String, String>> fallbackTranslations = const {},
   }) async {
     _print('Initializing...');
-    final path = await getApplicationCacheDirectory();
-    _httpClient = CacheClient(
-      http.Client(),
-      options: CacheOptions(
-        store: FileCacheStore(path.absolute.path),
-        policy: CachePolicy.refresh,
-        // Return cached value on network error or offline
-        hitCacheOnNetworkFailure: true,
-        // Return cached value on 403 or 500 errors
-        hitCacheOnErrorCodes: [403, 500],
-        maxStale: null,
-      ),
-    );
+    _httpClient = await EtagCacheClient.create();
     if (baseUrl == null) {
       throw _TranslationsIntegrationException('Set baseUrl with [TranslationsService.baseUrl] first!');
     }
@@ -198,8 +189,8 @@ class NormalTranslationsService extends TranslationsService {
   Future<Map<String, String>> _fetchTranslations(Language language) async {
     final url = '${TranslationsService.baseUrl}$selectedVersion/${language.code}.json';
     _print('Fetching $language from $url');
-    final res = await TranslationsService._httpClient.get(Uri.parse(url));
-    return (jsonDecode(res.body) as Map<dynamic, dynamic>).cast<String, String>();
+    final responseBody = await TranslationsService._httpClient.get(url);
+    return (jsonDecode(responseBody) as Map<dynamic, dynamic>).cast<String, String>();
   }
 
   /// Try to get all data from remote and return [TranslationsService] instance
@@ -207,20 +198,19 @@ class NormalTranslationsService extends TranslationsService {
   static Future<NormalTranslationsService> _initialize({required String baseUrl}) async {
     _print('Fetching versions from ${baseUrl}versions.json ...');
     final versions = await TranslationsService._httpClient
-        .get(Uri.parse("${baseUrl}versions.json"))
-        .then((it) => (jsonDecode(it.body) as List<dynamic>).map((it) => it.toString()).toList());
+        .get("${baseUrl}versions.json")
+        .then((it) => (jsonDecode(it) as List<dynamic>).map((it) => it.toString()).toList());
     final selectedVersion = await _findMostSuitableVersion(versions);
     _print('Selected version: $selectedVersion, all versions: $versions');
 
     _print('Fetching languages...');
-    final languages = await TranslationsService._httpClient
-        .get(Uri.parse('$baseUrl$selectedVersion/info.json'))
-        .then((it) {
-          return ((jsonDecode(it.body) as Map<dynamic, dynamic>)["languages"] as Map<dynamic, dynamic>)
-              .entries
-              .map((entry) => Language(entry.value.toString(), entry.key.toString()))
-              .toSet();
-        });
+    final languages = await TranslationsService._httpClient.get('$baseUrl$selectedVersion/info.json').then((
+      it,
+    ) {
+      return ((jsonDecode(it) as Map<dynamic, dynamic>)["languages"] as Map<dynamic, dynamic>).entries
+          .map((entry) => Language(entry.value.toString(), entry.key.toString()))
+          .toSet();
+    });
     _print('Found languages: $languages');
 
     final instance = NormalTranslationsService._internal(

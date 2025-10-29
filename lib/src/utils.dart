@@ -72,6 +72,12 @@ void _print(String message) {
   debugPrint('[TranslationsService] $message');
 }
 
+void _debugLog(String message) {
+  if (TranslationsService.enableDebugLogs) {
+    debugPrint(message);
+  }
+}
+
 extension Let<T> on T {
   R? let<R>(R? Function(T it) op) => op(this);
 }
