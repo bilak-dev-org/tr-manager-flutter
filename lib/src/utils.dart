@@ -57,7 +57,7 @@ Future<String> _findMostSuitableVersion(List<String> availableVersions) async {
 
   // Filter versions that are less than current version
   final List<String> previousVersions = availableVersions
-      .where((version) => _compareVersions(version, currentVersion) < 0)
+      .where((version) => _compareVersions(version, currentVersion) <= 0)
       .toList();
   if (previousVersions.isEmpty) {
     throw _TranslationsIntegrationException('No previous versions found, current: $currentVersion');
