@@ -124,10 +124,18 @@ class EtagCacheClient {
     }
 
     // Make HTTP request
-    final response = await _httpClient.get(
-      Uri.parse(url),
-      headers: headers,
-    );
+    http.Response response;
+    try {
+      response = await _httpClient.get(Uri.parse(url), headers: headers);
+    } catch (e) {
+      if (cachedEntry == null) {
+        _print('[EtagCache] Connection error and no cache found for $url');
+        rethrow;
+      } else {
+        _print('[EtagCache] Connection error but cache found for $url');
+        return cachedEntry.data;
+      }
+    }
 
     // Handle 304 Not Modified - use cache
     if (response.statusCode == 304) {
@@ -145,11 +153,10 @@ class EtagCacheClient {
     if (response.statusCode == 200) {
       final etag = response.headers['etag'];
       if (etag != null && etag.isNotEmpty) {
-        _debugLog('[EtagCache] 200 OK - ${cachedEntry != null ? 'updating' : 'creating'} cache for $url (New ETag: $etag)');
-        final entry = CacheEntry(
-          etag: etag,
-          data: response.body,
+        _debugLog(
+          '[EtagCache] 200 OK - ${cachedEntry != null ? 'updating' : 'creating'} cache for $url (New ETag: $etag)',
         );
+        final entry = CacheEntry(etag: etag, data: response.body);
         _saveCache(url, entry);
       } else {
         _debugLog('[EtagCache] 200 OK - no ETag header from server for $url, not caching');
@@ -158,10 +165,7 @@ class EtagCacheClient {
     }
 
     // Handle other status codes
-    throw HttpException(
-      'HTTP request failed with status ${response.statusCode}',
-      uri: Uri.parse(url),
-    );
+    throw HttpException('HTTP request failed with status ${response.statusCode}', uri: Uri.parse(url));
   }
 
   /// Clears all cached entries
