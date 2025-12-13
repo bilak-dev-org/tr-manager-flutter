@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
 part 'package:translations_service_integration/src/cache_entry.dart';
 part 'package:translations_service_integration/src/etag_cache_client.dart';
 part 'package:translations_service_integration/src/utils.dart';
@@ -74,7 +75,11 @@ abstract class TranslationsService {
   final Set<Language> _languages;
 
   TranslationsService._internal({required this.selectedVersion, required Set<Language> languages})
-    : _languages = languages;
+    : _languages = languages {
+    if (_languages.isEmpty) {
+      languages.add(Language('English', 'en'));
+    }
+  }
 
   List<Language> get languages => _languages.toList();
 
