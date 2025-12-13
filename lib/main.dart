@@ -85,7 +85,13 @@ abstract class TranslationsService {
 
   Language get selectedLanguage;
 
-  Map<String, String> get currentTranslations => {..._translations[selectedLanguage]!};
+  Map<String, String> get currentTranslations {
+    if (_translations.containsKey(selectedLanguage)) {
+      return {..._translations[selectedLanguage]!};
+    } else {
+      return {};
+    }
+  }
 
   /// Select a language, load translations and save into storage
   /// Saves into storage ONLY if translations were fetched successfully
