@@ -13,6 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 part 'package:translations_service_integration/src/cache_entry.dart';
 part 'package:translations_service_integration/src/etag_cache_client.dart';
 part 'package:translations_service_integration/src/utils.dart';
+part 'package:translations_service_integration/src/parent_locales.dart';
 
 class Language {
   final String name;
@@ -72,16 +73,16 @@ abstract class TranslationsService {
 
   /// Translations for available languages
   final Map<Language, Map<String, String>> _translations = {};
-  final Set<Language> _languages;
+  final List<Language> _languages;
 
-  TranslationsService._internal({required this.selectedVersion, required Set<Language> languages})
+  TranslationsService._internal({required this.selectedVersion, required List<Language> languages})
     : _languages = languages {
     if (_languages.isEmpty) {
       languages.add(Language('English', 'en'));
     }
   }
 
-  List<Language> get languages => _languages.toList();
+  List<Language> get languages => List.unmodifiable(_languages);
 
   Language get selectedLanguage;
 
@@ -103,25 +104,21 @@ abstract class TranslationsService {
   /// Determines the most suitable locale from available options
   /// based on the device's locale preferences.
   /// Will NOT save it anywhere, just return the best match
-  Language selectBestLanguage({Language? fallback}) {
-    fallback ??= _languages.first;
-
-    // Get device locales in order of preference
-    final deviceLocales = PlatformDispatcher.instance.locales;
-
-    // Try to find exact language code match in order of device preference
-    for (final deviceLocale in deviceLocales) {
-      final languageCode = deviceLocale.languageCode.toLowerCase();
-
-      // Check for exact match
-      final lang = _languages.firstWhereOrNull((it) => it.code.toLowerCase() == languageCode);
-      if (lang != null) {
-        return lang;
-      }
+  Language selectBestLanguage({Language? fallback, String? defaultLanguage}) {
+    for (final locale in PlatformDispatcher.instance.locales) {
+      final resolved = _resolveLocale(locale.toLanguageTag(), _languages);
+      if (resolved != null) return resolved;
     }
 
-    // If no exact match found, return fallback
-    return fallback;
+    if (defaultLanguage != null) {
+      final resolved = _resolveLocale(defaultLanguage, _languages);
+      if (resolved != null) return resolved;
+    }
+
+    final en = _resolveLocale('en', _languages);
+    if (en != null) return en;
+
+    return fallback ?? _languages.first;
   }
 
   /// [baseUrl] aws bucket base url
@@ -153,7 +150,7 @@ abstract class TranslationsService {
       TranslationsService._instance = FallbackTranslationsService._internal(
         selectedVersion: "",
         fallbackTranslations: fallbackTranslations,
-        languages: fallbackTranslations.keys.toSet(),
+        languages: fallbackTranslations.keys.toList(),
       );
     }
   }
@@ -161,11 +158,13 @@ abstract class TranslationsService {
 
 class NormalTranslationsService extends TranslationsService {
   final SharedPreferences prefs;
+  final String? defaultLanguage;
   Language? _selectedLanguage;
 
   NormalTranslationsService._internal({
     required super.selectedVersion,
     required this.prefs,
+    required this.defaultLanguage,
     required super.languages,
   }) : super._internal();
 
@@ -193,10 +192,10 @@ class NormalTranslationsService extends TranslationsService {
 
   Future<void> _init() async {
     _selectedLanguage = prefs.getString(TranslationsService._languageStorageKey)?.let((code) {
-      return _languages.firstWhereOrNull((lng) => lng.code == code);
+      return _resolveLocale(code, _languages);
     });
     if (_selectedLanguage == null) {
-      _selectedLanguage = selectBestLanguage();
+      _selectedLanguage = selectBestLanguage(defaultLanguage: defaultLanguage);
       _print('No saved language found, chose $_selectedLanguage');
     }
     await selectLanguage(_selectedLanguage!);
@@ -221,18 +220,20 @@ class NormalTranslationsService extends TranslationsService {
     _print('Selected version: $selectedVersion, all versions: $versions');
 
     _print('Fetching languages...');
-    final languages = await TranslationsService._httpClient.get('$baseUrl$selectedVersion/info.json').then((
-      it,
-    ) {
-      return ((jsonDecode(it) as Map<dynamic, dynamic>)["languages"] as Map<dynamic, dynamic>).entries
-          .map((entry) => Language(entry.value.toString(), entry.key.toString()))
-          .toSet();
-    });
-    _print('Found languages: $languages');
+    final infoJson = jsonDecode(
+      await TranslationsService._httpClient.get('$baseUrl$selectedVersion/info.json'),
+    ) as Map<dynamic, dynamic>;
+    final languages = (infoJson['languages'] as Map<dynamic, dynamic>)
+        .entries
+        .map((entry) => Language(entry.value.toString(), entry.key.toString()))
+        .toList();
+    final defaultLanguage = infoJson['defaultLanguage'] as String?;
+    _print('Found languages: $languages, defaultLanguage: $defaultLanguage');
 
     final instance = NormalTranslationsService._internal(
       selectedVersion: selectedVersion,
       prefs: await SharedPreferences.getInstance(),
+      defaultLanguage: defaultLanguage,
       languages: languages,
     );
     await instance._init();
